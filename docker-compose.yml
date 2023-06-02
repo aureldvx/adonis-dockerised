@@ -1,0 +1,91 @@
+version: '3'
+
+services:
+    node:
+        build: .
+        container_name: <project_name>_node
+        networks:
+            - default
+        restart: always
+        volumes:
+            - ./:/home/node/<project_name>/
+        working_dir: /home/node/<project_name>
+
+    database:
+        container_name: <project_name>_database
+        environment:
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: example
+            POSTGRES_DB: <project_name>
+        image: postgres:15
+        networks:
+            - default
+        restart: always
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+
+    web:
+        build: .
+        container_name: <project_name>_web
+        depends_on:
+            - database
+            - node
+        entrypoint: [ "node", "ace", "serve", "--watch", "--no-assets" ]
+        labels:
+            traefik.enable: true
+            traefik.http.routers.<project_name>_web.tls: true
+            traefik.docker.network: local_environment_web
+            traefik.http.routers.<project_name>_web.rule: "Host(`<project_host>.traefik.me`)"
+            traefik.http.routers.<project_name>_web.tls.domains[0].main: "<project_host>.traefik.me"
+            traefik.http.routers.<project_name>_web.tls.domains[0].sans: "<project_host>-*.traefik.me"
+            traefik.http.services.<project_name>_web.loadbalancer.server.port: 3333
+        networks:
+            - default
+            - local_environment_web
+        restart: always
+        volumes:
+            - ./:/home/node/<project_name>/
+        working_dir: /home/node/<project_name>
+
+    adminer:
+        container_name: <project_name>_adminer
+        depends_on:
+            - database
+        image: adminer
+        labels:
+            traefik.enable: true
+            traefik.docker.network: local_environment_web
+            traefik.http.routers.<project_name>_adminer.tls: true
+            traefik.http.routers.<project_name>_adminer.rule: "Host(`database-<project_host>.traefik.me`)"
+            traefik.http.routers.<project_name>_adminer.tls.domains[0].main: "database-<project_host>.traefik.me"
+            traefik.http.routers.<project_name>_adminer.tls.domains[0].sans: "database-<project_host>-*.traefik.me"
+            traefik.http.services.<project_name>_adminer.loadbalancer.server.port: 8080
+        networks:
+            - default
+            - local_environment_web
+        restart: unless-stopped
+
+    mailer:
+        container_name: <project_name>_mailer
+        image: maildev/maildev
+        labels:
+            traefik.enable: true
+            traefik.docker.network: local_environment_web
+            traefik.http.routers.<project_name>_mailer.tls: true
+            traefik.http.routers.<project_name>_mailer.rule: HostRegexp(`mailer-<project_host>{ip:(\.[0-9]{3}\.[0-9]{3}\.[0-9]{1}\.[0-9]{2,3})?}.traefik.me`)
+            traefik.http.routers.<project_name>_mailer.tls.domains[0].main: "mailer-<project_host>.traefik.me"
+            traefik.http.routers.<project_name>_mailer.tls.domains[0].sans: "mailer-<project_host>-*.traefik.me"
+            traefik.http.services.<project_name>_mailer.loadbalancer.server.port: "1080"
+        networks:
+            - default
+            - local_environment_web
+        restart: unless-stopped
+
+networks:
+    default:
+        driver: bridge
+    local_environment_web:
+        external: true
+
+volumes:
+    postgres_data:
